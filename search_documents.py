@@ -14,10 +14,8 @@ import numpy as np
 import google.generativeai as genai
 from sklearn.metrics.pairwise import cosine_similarity
 
-# Load environment variables
 load_dotenv()
 
-# Load settings from .env
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 POSTGRES_URL = os.getenv('POSTGRES_URL')
 
@@ -26,13 +24,11 @@ if not GEMINI_API_KEY:
 if not POSTGRES_URL:
     raise ValueError("POSTGRES_URL not defined in .env file")
 
-# Configure Gemini API
 genai.configure(api_key=GEMINI_API_KEY)
 
 
 class EmbeddingGenerator:
     """Class for generating embeddings using Gemini API"""
-    
     @staticmethod
     def generate_embedding(text: str) -> List[float]:
         """
@@ -45,7 +41,6 @@ class EmbeddingGenerator:
             Embedding vector
         """
         try:
-            # Create embedding
             result = genai.embed_content(
                 model='models/text-embedding-004',
                 content=text,
@@ -59,7 +54,6 @@ class EmbeddingGenerator:
 
 class DatabaseSearch:
     """Class for searching in database"""
-    
     def __init__(self, postgres_url: str):
         """Initialize database connection"""
         self.conn = psycopg2.connect(postgres_url)
@@ -75,11 +69,8 @@ class DatabaseSearch:
         Returns:
             Cosine similarity value (between -1 and 1)
         """
-        # Convert to numpy arrays and reshape for sklearn
         vec1_array = np.array(vec1).reshape(1, -1)
         vec2_array = np.array(vec2).reshape(1, -1)
-        
-        # Calculate cosine similarity using sklearn
         similarity = cosine_similarity(vec1_array, vec2_array)[0][0]
         return float(similarity)
     
@@ -99,7 +90,6 @@ class DatabaseSearch:
             List of tuples of (chunk_dict, similarity_score)
         """
         with self.conn.cursor() as cur:
-            # Get all chunks from database
             cur.execute("""
                 SELECT id, chunk_text, embedding, filename, split_strategy, created_at
                 FROM document_chunks
@@ -107,22 +97,18 @@ class DatabaseSearch:
             
             rows = cur.fetchall()
             
-            # Calculate cosine similarity for each chunk
             results = []
             for row in rows:
                 chunk_id, chunk_text, embedding, filename, split_strategy, created_at = row
                 
-                # Convert embedding to list format if needed
                 if isinstance(embedding, (list, tuple)):
                     chunk_embedding = list(embedding)
                 else:
-                    # If embedding is in different format, try to convert
                     chunk_embedding = list(embedding) if hasattr(embedding, '__iter__') else []
                 
                 if not chunk_embedding:
                     continue
                 
-                # Calculate cosine similarity
                 similarity = self._calculate_similarity(query_embedding, chunk_embedding)
                 
                 results.append((
@@ -136,10 +122,8 @@ class DatabaseSearch:
                     similarity
                 ))
             
-            # Sort by similarity (highest to lowest)
             results.sort(key=lambda x: x[1], reverse=True)
             
-            # Return top_k results
             return results[:top_k]
     
     def close(self):
@@ -159,18 +143,15 @@ def search_documents(query: str, top_k: int = 5):
     print(f"Searching: '{query}'")
     print("-" * 60)
     
-    # 1. Create embedding for query
     print("Creating embedding for query...")
     embedding_gen = EmbeddingGenerator()
     query_embedding = embedding_gen.generate_embedding(query)
     
-    # 2. Search in database
     print("Searching in database...")
     db_search = DatabaseSearch(POSTGRES_URL)
     results = db_search.search_similar_chunks(query_embedding, top_k)
     db_search.close()
     
-    # 3. Display results
     if not results:
         print("No results found in database.")
         return

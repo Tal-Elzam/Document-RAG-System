@@ -4,7 +4,6 @@ import time
 from typing import List, Optional
 from datetime import datetime
 import argparse
-
 from dotenv import load_dotenv
 import psycopg2
 from psycopg2.extras import execute_values
@@ -17,8 +16,6 @@ Purpose: Processing documents (PDF/DOCX) by: extracting text, chunking, creating
 """
 
 load_dotenv()
-
-# Load settings from .env
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 POSTGRES_URL = os.getenv('POSTGRES_URL')
 
@@ -27,9 +24,7 @@ if not GEMINI_API_KEY:
 if not POSTGRES_URL:
     raise ValueError("POSTGRES_URL not defined in .env file")
 
-# define Gemini API
 genai.configure(api_key=GEMINI_API_KEY)
-
 
 class TextChunker:
     """Helper class for splitting text into chunks"""
@@ -90,15 +85,6 @@ class TextChunker:
     
     @staticmethod
     def paragraph_based_chunks(text: str) -> List[str]:
-        """
-        Split text into chunks based on paragraphs
-        
-        Args:
-            text: Text to split
-            
-        Returns:
-            List of chunks
-        """
         paragraphs = text.split('\n\n')
         chunks = [p.strip() for p in paragraphs if p.strip()]
         return chunks
@@ -106,7 +92,6 @@ class TextChunker:
 
 class DocumentProcessor:
     """Class for processing documents"""
-    
     @staticmethod
     def extract_text_from_pdf(file_path: str) -> str:
         """extract text from PDF file"""
@@ -144,7 +129,6 @@ class DocumentProcessor:
 
 class EmbeddingGenerator:
     """Class for generating embeddings using Gemini API"""
-    
     @staticmethod
     def generate_embedding(text: str) -> List[float]:
         """
@@ -157,7 +141,6 @@ class EmbeddingGenerator:
             Embedding vector
         """
         try:
-            # create embedding
             result = genai.embed_content(
                 model='models/text-embedding-004',
                 content=text,
@@ -171,7 +154,6 @@ class EmbeddingGenerator:
 
 class DatabaseManager:
     """Class for managing PostgreSQL database"""
-    
     def __init__(self, postgres_url: str):
         """Initialize database connection"""
         self.conn = psycopg2.connect(postgres_url)
@@ -180,7 +162,6 @@ class DatabaseManager:
     def ensure_table_exists(self):
         """Ensure table exists in database"""
         with self.conn.cursor() as cur:
-            # Create table with regular array
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS document_chunks (
                     id SERIAL PRIMARY KEY,
@@ -197,9 +178,7 @@ class DatabaseManager:
     def delete_all_chunks(self):
         """Delete all chunks from database and reset ID sequence"""
         with self.conn.cursor() as cur:
-            # Delete all chunks
             cur.execute("DELETE FROM document_chunks;")
-            # Reset the ID sequence to start from 1
             cur.execute("ALTER SEQUENCE document_chunks_id_seq RESTART WITH 1;")
             self.conn.commit()
     
@@ -211,17 +190,14 @@ class DatabaseManager:
             chunks: List of chunks, each with chunk_text, embedding, filename, split_strategy
         """
         with self.conn.cursor() as cur:
-            # Prepare data for insertion
-            values = []
-            for chunk in chunks:
-                values.append((
-                    chunk['chunk_text'],
-                    chunk['embedding'],
-                    chunk['filename'],
-                    chunk['split_strategy']
-                ))
-            
-            # Bulk insert
+            values = [
+                (
+                    c['chunk_text'],
+                    c['embedding'],
+                    c['filename'],
+                    c['split_strategy']
+                ) for c in chunks
+            ]
             execute_values(
                 cur,
                 """
@@ -257,36 +233,28 @@ def process_document(
         sentences_per_chunk: Number of sentences per chunk (for sentence strategy)
     """
     print(f"Processing file: {file_path}")
-    
-    # 1. חילוץ טקסט
     print("Extracting text from file...")
-    processor = DocumentProcessor()
-    text = processor.extract_text(file_path)
+    text = DocumentProcessor.extract_text(file_path)
     print(f"Extracted text with {len(text)} characters")
     
-    # 2. חלוקה לקטעים
     print(f"Splitting into chunks by strategy: {split_strategy}...")
-    chunker = TextChunker()
-    
     if split_strategy == 'fixed_size':
-        chunks = chunker.fixed_size_chunks(text, chunk_size, overlap)
+        chunks = TextChunker.fixed_size_chunks(text, chunk_size, overlap)
     elif split_strategy == 'sentence':
-        chunks = chunker.sentence_based_chunks(text, sentences_per_chunk)
+        chunks = TextChunker.sentence_based_chunks(text, sentences_per_chunk)
     elif split_strategy == 'paragraph':
-        chunks = chunker.paragraph_based_chunks(text)
+        chunks = TextChunker.paragraph_based_chunks(text)
     else:
         raise ValueError(f"Invalid split strategy: {split_strategy}")
     
     print(f"Created {len(chunks)} chunks")
     
-    # 3. Create embeddings and save
     print("Creating embeddings...")
     embedding_gen = EmbeddingGenerator()
     
     filename = os.path.basename(file_path)
     db_manager = DatabaseManager(POSTGRES_URL)
     
-    # Clear all existing chunks before adding new ones
     print("Clearing existing chunks from database...")
     db_manager.delete_all_chunks()
     
@@ -301,15 +269,14 @@ def process_document(
             'split_strategy': split_strategy
         })
         
-        # Add delay to avoid rate limits (wait 1 second between requests)
-        if i < len(chunks) - 1:  # Don't wait after the last chunk
-            time.sleep(1)  
+        if i + 1 < len(chunks):
+            time.sleep(1)
     
     print(f"\nInserting {len(chunks_data)} chunks into database...")
     db_manager.insert_chunks(chunks_data)
     db_manager.close()
     
-    print(f"✓ Document indexed successfully!")
+    print(f"Document indexed successfully!")
     print(f"  File: {filename}")
     print(f"  Number of chunks: {len(chunks_data)}")
     print(f"  Chunking strategy: {split_strategy}")
@@ -348,7 +315,6 @@ def main():
     
     args = parser.parse_args()
     
-    # Check if file exists
     if not os.path.exists(args.file_path):
         print(f"Error: File not found: {args.file_path}")
         sys.exit(1)
@@ -364,7 +330,6 @@ def main():
     except Exception as e:
         print(f"error: {str(e)}")
         sys.exit(1)
-
 
 if __name__ == '__main__':
     main()
